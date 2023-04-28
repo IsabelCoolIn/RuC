@@ -24,7 +24,17 @@
 #include "uniprinter.h"
 #include "utf8.h"
 #include "writer.h"
+#include "debug.h"
 
+
+size_t curline=0, line=0;
+int ii=0, pconnect=-1;
+typedef struct dline
+{
+	size_t line;
+	size_t pc;
+}dline;
+dline connect[100];
 
 #define DISPL_START 3
 
@@ -40,7 +50,6 @@
 
 static const char *const DEFAULT_CODES = "codes.txt";
 static const size_t MAX_MEM_SIZE = 100000;
-
 
 /** Kinds of lvalue */
 typedef enum OPERAND
@@ -99,6 +108,7 @@ static void emit_declaration(encoder *const enc, const node *const nd);
  *	 \ \_____\    \ \_\  \ \_\  \ \_____\  \/\_____\
  *	  \/_____/     \/_/   \/_/   \/_____/   \/_____/
  */
+
 
 
 static inline int mem_increase(encoder *const enc, const size_t size)
@@ -327,6 +337,16 @@ static encoder enc_create(const workspace *const ws, syntax *const sx)
 	return enc;
 }
 
+static int print_debug_lines(const encoder *const enc)
+{
+	int i;
+	for (i=0; i<=pconnect; i++)
+	{
+		uni_printf(enc->sx->io, "%zi %zi ", connect[i].line, connect[i].pc);
+	}
+	uni_printf(enc->sx->io, "\n");
+	return 0;
+}
 /**
  *	Print table
  *
@@ -365,7 +385,8 @@ static int enc_export(const encoder *const enc)
 {
 	uni_printf(enc->sx->io, "#!/usr/bin/ruc-vm\n");
 
-	uni_printf(enc->sx->io, "%zi %zi %zi %zi %zi %" PRIitem " 0\n"
+	uni_printf(enc->sx->io, "%i %zi %zi %zi %zi %zi %" PRIitem " 0\n"
+		, pconnect
 		, vector_size(&enc->memory)
 		, vector_size(&enc->functions)
 		, vector_size(&enc->identifiers)
@@ -373,7 +394,8 @@ static int enc_export(const encoder *const enc)
 		, vector_size(&enc->sx->types)
 		, enc->max_global_displ);
 
-	return print_table(enc, &enc->memory)
+	return print_debug_lines(enc)
+		|| print_table(enc, &enc->memory)
 		|| print_table(enc, &enc->functions)
 		|| print_table(enc, &enc->identifiers)
 		|| print_table(enc, &enc->representations)
@@ -401,7 +423,7 @@ static void enc_clear(encoder *const enc)
  *	@param	enc			Encoder
  *	@param	num			Error code
  */
-static void encoder_error(encoder *const enc, const location loc, err_t num, ...)
+static void encoder_error(encoder *const enc, const range_location loc, err_t num, ...)
 {
 	va_list args;
 	va_start(args, num);
@@ -1226,6 +1248,14 @@ static void emit_initializer(encoder *const enc, const node *const nd)
  */
 static void emit_expression(encoder *const enc, const node *const nd)
 {
+	memory_into_txt(&enc->memory);
+	line=debug_which_is_needed(nd,enc->sx->io);
+	if (curline<line)
+	{
+		curline=line;
+		connect[++pconnect].line=line;
+		connect[pconnect].pc=mem_size(enc);
+	}
 	if (expression_is_lvalue(nd))
 	{
 		const lvalue value = emit_lvalue(enc, nd);
@@ -2033,7 +2063,6 @@ int encode_to_vm(const workspace *const ws, syntax *const sx)
 	{
 		return -1;
 	}
-
 	encoder enc = enc_create(ws, sx);
 
 	const node root = node_get_root(&sx->tree);
@@ -2042,7 +2071,10 @@ int encode_to_vm(const workspace *const ws, syntax *const sx)
 #ifndef NDEBUG
 	write_codes(DEFAULT_CODES, &enc.memory);
 #endif
-
+	for (ii=0; ii<=pconnect; ii++)
+	{
+		printf("%zi %zi\n", connect[ii].line, connect[ii].pc);
+	}
 	int ret = reporter_get_errors_number(&enc.sx->rprt) != 0 ? 1 : 0;
 	if (!ret)
 	{

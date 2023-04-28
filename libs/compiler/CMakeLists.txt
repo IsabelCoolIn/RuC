@@ -11,7 +11,7 @@ add_library(${PROJECT_NAME} SHARED ${SRC} ${HDR})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 
-target_link_libraries(${PROJECT_NAME} preprocessor utils)
+target_link_libraries(${PROJECT_NAME} macro utils)
 
 if(NOT MSVC)
 	target_link_libraries(${PROJECT_NAME} m)

@@ -19,9 +19,10 @@
 #include <string.h>
 #include "codegen.h"
 #include "errors.h"
+#include "mipsgen.h"
 #include "llvmgen.h"
 #include "parser.h"
-#include "preprocessor.h"
+#include "macro.h"
 #include "syntax.h"
 #include "uniio.h"
 
@@ -58,23 +59,6 @@ static inline void make_executable(const char *const path)
 #endif
 }
 
-/** Skip linker stage */
-static inline bool skip_linker(const workspace *const ws)
-{
-	for (size_t i = 0; ; i++)
-	{
-		const char *flag = ws_get_flag(ws, i);
-		if (flag == NULL)
-		{
-			return false;
-		}
-		else if (strcmp(flag, "-c") == 0)
-		{
-			return true;
-		}
-	}
-}
-
 
 static status_t compile_from_io(const workspace *const ws, universal_io *const io, const encoder enc)
 {
@@ -89,7 +73,7 @@ static status_t compile_from_io(const workspace *const ws, universal_io *const i
 	int ret = parse(&sx);
 	status_t sts = sts_parse_error;
 
-	if (!ret && !skip_linker(ws))
+	if (!ret && !ws_has_flag(ws, "-c")) // Skip linker stage
 	{
 		ret = !sx_is_correct(&sx);
 		sts = sts_link_error;
@@ -112,6 +96,11 @@ static status_t compile_from_ws(workspace *const ws, const encoder enc)
 	{
 		error_msg("некорректные входные данные");
 		return sts_system_error;
+	}
+
+	if (ws_has_flag(ws, "-E"))
+	{
+		return macro_to_file(ws, ws_get_output(ws)) ? sts_macro_error : sts_success;
 	}
 
 	universal_io io = io_create();
@@ -156,18 +145,17 @@ static status_t compile_from_ws(workspace *const ws, const encoder enc)
 
 status_t compile(workspace *const ws)
 {
-	for (size_t i = 0; ; i++)
+	if (ws_has_flag(ws, "-LLVM"))
 	{
-		const char *flag = ws_get_flag(ws, i);
-
-		if (flag == NULL || strcmp(flag, "-VM") == 0)
-		{
-			return compile_to_vm(ws);
-		}
-		else if (strcmp(flag, "-LLVM") == 0)
-		{
-			return compile_to_llvm(ws);
-		}
+		return compile_to_llvm(ws);
+	}
+	else if (ws_has_flag(ws, "-MIPS"))
+	{
+		return compile_to_mips(ws);
+	}
+	else // if (ws_has_flag(ws, "-VM"))
+	{
+		return compile_to_vm(ws);
 	}
 }
 
@@ -198,6 +186,16 @@ status_t compile_to_llvm(workspace *const ws)
 	return sts == sts_codegen_error ? sts_llvm_error : sts;
 }
 
+int compile_to_mips(workspace *const ws)
+{
+	if (ws_get_output(ws) == NULL)
+	{
+		ws_set_output(ws, DEFAULT_MIPS);
+	}
+
+	return compile_from_ws(ws, &encode_to_mips);
+}
+
 
 
 int auto_compile(const int argc, const char *const *const argv)
@@ -220,6 +218,14 @@ int auto_compile_to_llvm(const int argc, const char *const *const argv)
 {
 	workspace ws = ws_parse_args(argc, argv);
 	const status_t ret = compile_to_llvm(&ws);
+	ws_clear(&ws);
+	return ret;
+}
+
+int auto_compile_to_mips(const int argc, const char *const *const argv)
+{
+	workspace ws = ws_parse_args(argc, argv);
+	const int ret = compile_to_mips(&ws);
 	ws_clear(&ws);
 	return ret;
 }
@@ -256,6 +262,21 @@ int no_macro_compile_to_llvm(const char *const path)
 	out_set_file(&io, ws_get_output(&ws));
 
 	const int ret = compile_from_io(&ws, &io, &encode_to_llvm);
+	ws_clear(&ws);
+	return ret;
+}
+
+int no_macro_compile_to_mips(const char *const path)
+{
+	universal_io io = io_create();
+	in_set_file(&io, path);
+
+	workspace ws = ws_create();
+	ws_add_file(&ws, path);
+	ws_set_output(&ws, DEFAULT_MIPS);
+	out_set_file(&io, ws_get_output(&ws));
+
+	const int ret = compile_from_io(&ws, &io, &encode_to_mips);
 	ws_clear(&ws);
 	return ret;
 }
